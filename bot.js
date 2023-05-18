@@ -1,55 +1,47 @@
 const TelegramBot = require('node-telegram-bot-api');
-const MongoClient = require('mongodb').MongoClient;
+const mysql = require('mysql');
 
 const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
 const bot = new TelegramBot(token, { polling: true });
 
-const url = 'mongodb://localhost:27017';
-const dbName = 'users';
-const collectionName = 'telegram_users';
+const connection = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: 'Asetabalana14$',
+  database: 'users'
+});
+
+connection.connect((err) => {
+  if (err) {
+    console.error('Error connecting to database: ' + err.stack);
+    return;
+  }
+  console.log('Connected to database as id ' + connection.threadId);
+});
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-  const userFirstName = msg.from.first_name;
-  const userLastName = msg.from.last_name;
-  const userUsername = msg.from.username;
+  const username = msg.from.username;
+  const firstName = msg.from.first_name;
+  const lastName = msg.from.last_name;
 
-  MongoClient.connect(url, { useNewUrlParser: true }, (err, client) => {
-    if (err) throw err;
+  connection.query('SELECT * FROM users WHERE telegram_id = ?', [userId], (error, results, fields) => {
+    if (error) throw error;
 
-    const db = client.db(dbName);
-    const collection = db.collection(collectionName);
-
-    collection.findOne({ userId }, (err, user) => {
-      if (err) throw err;
-
-      if (!user) {
-        const newUser = {
-          userId,
-          firstName: userFirstName,
-          lastName: userLastName,
-          username: userUsername,
-          demoExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
-        };
-
-        collection.insertOne(newUser, (err) => {
-          if (err) throw err;
-
-          bot.sendMessage(chatId, 'Welcome to the demo version of our bot!');
-        });
+    if (results.length === 0) {
+      connection.query('INSERT INTO users (telegram_id, username, first_name, last_name, demo_period) VALUES (?, ?, ?, ?, ?)', [userId, username, firstName, lastName, 1], (error, results, fields) => {
+        if (error) throw error;
+        bot.sendMessage(chatId, 'Welcome to our bot! You have a demo period of 24 hours.');
+      });
+    } else {
+      const user = results[0];
+      if (user.demo_period === 0) {
+        bot.sendMessage(chatId, 'Your demo period has expired. Please subscribe to continue using our bot.');
       } else {
-        const demoExpiresAt = new Date(user.demoExpiresAt);
-
-        if (demoExpiresAt > new Date()) {
-          bot.sendMessage(chatId, 'Welcome back to the demo version of our bot!');
-        } else {
-          bot.sendMessage(chatId, 'Your demo period has expired. Please subscribe to continue using our bot.');
-        }
+        bot.sendMessage(chatId, 'Welcome back! You have ' + user.demo_period + ' hours left in your demo period.');
       }
-
-      client.close();
-    });
+    }
   });
 });
 
@@ -57,36 +49,22 @@ bot.onText(/\/subscribe/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  MongoClient.connect(url, { useNewUrlParser: true }, (err, client) => {
-    if (err) throw err;
+  connection.query('SELECT * FROM users WHERE telegram_id = ?', [userId], (error, results, fields) => {
+    if (error) throw error;
 
-    const db = client.db(dbName);
-    const collection = db.collection(collectionName);
-
-    collection.findOne({ userId }, (err, user) => {
-      if (err) throw err;
-
-      if (!user) {
-        bot.sendMessage(chatId, 'You need to start the bot first before subscribing.');
+    if (results.length === 0) {
+      bot.sendMessage(chatId, 'You need to start the bot first before subscribing.');
+    } else {
+      const user = results[0];
+      if (user.demo_period === 0) {
+        bot.sendMessage(chatId, 'Your demo period has expired. Please subscribe to continue using our bot.');
       } else {
-        const demoExpiresAt = new Date(user.demoExpiresAt);
-
-        if (demoExpiresAt > new Date()) {
-          bot.sendMessage(chatId, 'Your demo period has not expired yet. No need to subscribe.');
-        } else {
-          // Here you can implement your payment system logic
-          // For this example, we will just update the user's demoExpiresAt to 30 days from now
-          const newDemoExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-
-          collection.updateOne({ userId }, { $set: { demoExpiresAt: newDemoExpiresAt } }, (err) => {
-            if (err) throw err;
-
-            bot.sendMessage(chatId, 'Thank you for subscribing!');
-          });
-        }
+        connection.query('UPDATE users SET demo_period = 0, subscribed = 1 WHERE telegram_id = ?', [userId], (error, results, fields) => {
+          if (error) throw error;
+          bot.sendMessage(chatId, 'Thank you for subscribing! You can now use our bot without any limitations.');
+        });
       }
-
-      client.close();
-    });
+    }
   });
 });
+
