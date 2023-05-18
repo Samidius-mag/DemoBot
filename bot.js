@@ -1,9 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const mysql = require('mysql');
 
-const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
-const bot = new TelegramBot(token, { polling: true });
-
+// Подключение к базе данных
 const connection = mysql.createConnection({
   host: 'localhost',
   user: 'root',
@@ -11,60 +9,64 @@ const connection = mysql.createConnection({
   database: 'users'
 });
 
-connection.connect((err) => {
-  if (err) {
-    console.error('Error connecting to database: ' + err.stack);
-    return;
-  }
-  console.log('Connected to database as id ' + connection.threadId);
-});
+// Создание бота
+const bot = new TelegramBot('6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4', { polling: true });
 
+// Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const username = msg.from.username;
-  const firstName = msg.from.first_name;
-  const lastName = msg.from.last_name;
 
-  connection.query('SELECT * FROM users WHERE telegram_id = ?', [userId], (error, results, fields) => {
+  // Проверка наличия пользователя в базе данных
+  connection.query(`SELECT * FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
     if (error) throw error;
 
     if (results.length === 0) {
-      connection.query('INSERT INTO users (telegram_id, username, first_name, last_name, demo_period) VALUES (?, ?, ?, ?, ?)', [userId, username, firstName, lastName, 1], (error, results, fields) => {
+      // Добавление нового пользователя в базу данных
+      connection.query(`INSERT INTO users (chat_id, demo_period) VALUES (${chatId}, NOW() + INTERVAL 1 DAY)`, (error, results, fields) => {
         if (error) throw error;
-        bot.sendMessage(chatId, 'Welcome to our bot! You have a demo period of 24 hours.');
+
+        bot.sendMessage(chatId, 'Добро пожаловать! Вы получили демо-версию бота на 24 часа.');
       });
     } else {
-      const user = results[0];
-      if (user.demo_period === 0) {
-        bot.sendMessage(chatId, 'Your demo period has expired. Please subscribe to continue using our bot.');
+      const demoPeriod = results[0].demo_period;
+
+      if (demoPeriod < new Date()) {
+        // Удаление пользователя из базы данных
+        connection.query(`DELETE FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
+          if (error) throw error;
+
+          bot.sendMessage(chatId, 'Демо-версия бота закончилась. Для продолжения использования необходимо оплатить месячную подписку.');
+        });
       } else {
-        bot.sendMessage(chatId, 'Welcome back! You have ' + user.demo_period + ' hours left in your demo period.');
+        bot.sendMessage(chatId, 'Вы уже получили демо-версию бота на 24 часа.');
       }
     }
   });
 });
 
+// Обработчик команды /subscribe
 bot.onText(/\/subscribe/, (msg) => {
   const chatId = msg.chat.id;
-  const userId = msg.from.id;
 
-  connection.query('SELECT * FROM users WHERE telegram_id = ?', [userId], (error, results, fields) => {
+  // Проверка наличия пользователя в базе данных
+  connection.query(`SELECT * FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
     if (error) throw error;
 
     if (results.length === 0) {
-      bot.sendMessage(chatId, 'You need to start the bot first before subscribing.');
+      bot.sendMessage(chatId, 'Вы не получили демо-версию бота.');
     } else {
-      const user = results[0];
-      if (user.demo_period === 0) {
-        bot.sendMessage(chatId, 'Your demo period has expired. Please subscribe to continue using our bot.');
+      const demoPeriod = results[0].demo_period;
+
+      if (demoPeriod < new Date()) {
+        bot.sendMessage(chatId, 'Демо-версия бота закончилась. Для продолжения использования необходимо оплатить месячную подписку.');
       } else {
-        connection.query('UPDATE users SET demo_period = 0, subscribed = 1 WHERE telegram_id = ?', [userId], (error, results, fields) => {
+        // Обновление даты окончания демо-периода и добавление месячной подписки
+        connection.query(`UPDATE users SET demo_period = NOW() + INTERVAL 1 MONTH, subscription = NOW() + INTERVAL 1 MONTH WHERE chat_id = ${chatId}`, (error, results, fields) => {
           if (error) throw error;
-          bot.sendMessage(chatId, 'Thank you for subscribing! You can now use our bot without any limitations.');
+
+          bot.sendMessage(chatId, 'Вы успешно оплатили месячную подписку. Теперь вы можете продолжить использование бота.');
         });
       }
     }
   });
 });
-
