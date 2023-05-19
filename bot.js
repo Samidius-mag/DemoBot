@@ -9,27 +9,14 @@ const bot = new TelegramBot(token, { polling: true });
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
-  // Проверяем, есть ли пользователь в файле users.json
-  const users = JSON.parse(fs.readFileSync('users.json'));
-  const user = users.find(u => u.id === msg.from.id);
-  if (!user) {
-    // Если пользователь не найден, добавляем его в файл
-    users.push({
-      id: msg.from.id,
-      demoMode: true,
-      subscription: false,
-      subscriptionExpires: null,
-    });
-    fs.writeFileSync('users.json', JSON.stringify(users));
-  }
-  // Отправляем сообщение с кнопкой "Начать"
-  bot.sendMessage(msg.chat.id, 'Нажмите на кнопку "Начать"', {
-    reply_markup: {
-      keyboard: [[{ text: 'Начать' }]],
-      resize_keyboard: true,
-      one_time_keyboard: true,
-    },
-  });
+ // Отправляем сообщение с кнопкой "Начать"
+bot.sendMessage(msg.chat.id, 'Нажмите на кнопку "Начать"', {
+reply_markup: {
+keyboard: [[{ text: 'Начать' }]],
+resize_keyboard: true,
+one_time_keyboard: true,
+},
+});
 });
 
 // Обработчик нажатия на кнопку "Начать"
