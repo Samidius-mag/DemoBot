@@ -9,30 +9,65 @@ const bot = new TelegramBot(token, { polling: true });
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
-  const userId = msg.from.id;
-  const user = getUser(userId);
-
+  // Проверяем, есть ли пользователь в файле users.json
+  const users = JSON.parse(fs.readFileSync('users.json'));
+  const user = users.find(u => u.id === msg.from.id);
   if (!user) {
-    // Если пользователь не найден, добавляем его в список пользователей
-    addUser(userId);
-    // Отправляем сообщение с кнопкой "Начать"
-    bot.sendMessage(msg.chat.id, 'Нажмите на кнопку "Начать"', {
-      reply_markup: {
-        keyboard: [[{ text: 'Начать' }]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      },
+    // Если пользователь не найден, добавляем его в файл
+    users.push({
+      id: msg.from.id,
+      demoMode: true,
+      subscription: false,
+      subscriptionExpires: null,
     });
-  } else if (user.expired) {
-    // Если у пользователя истек демо-период, сообщаем ему об этом
-    bot.sendMessage(msg.chat.id, 'Ваш демо-период истек. Для продолжения работы необходимо оплатить подписку.');
-  } else {
-    // Если пользователь уже зарегистрирован и его демо-период не истек, отправляем ему сообщение с кнопками
+    fs.writeFileSync('users.json', JSON.stringify(users));
+  }
+  // Отправляем сообщение с кнопкой "Начать"
+  bot.sendMessage(msg.chat.id, 'Нажмите на кнопку "Начать"', {
+    reply_markup: {
+      keyboard: [[{ text: 'Начать' }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
+  });
+});
+
+// Обработчик нажатия на кнопку "Начать"
+bot.on('message', (msg) => {
+  if (msg.text === 'Начать') {
+    // Проверяем, есть ли пользователь в файле users.json
+    const users = JSON.parse(fs.readFileSync('users.json'));
+    const user = users.find(u => u.id === msg.from.id);
+    if (!user) {
+      // Если пользователь не найден, добавляем его в файл
+      users.push({
+        id: msg.from.id,
+        demoMode: true,
+        subscription: false,
+        subscriptionExpires: null,
+      });
+      fs.writeFileSync('users.json', JSON.stringify(users));
+    } else if (user.subscription && new Date(user.subscriptionExpires) < new Date()) {
+      // Если у пользователя есть подписка, но она истекла, переводим его в демо-режим
+      user.demoMode = true;
+      user.subscription = false;
+      user.subscriptionExpires = null;
+      fs.writeFileSync('users.json', JSON.stringify(users));
+    } else if (user.demoMode && new Date() - new Date(user.demoMode) > 24 * 60 * 60 * 1000) {
+      // Если у пользователя демо-режим и он истек, удаляем его из файла
+      users.splice(users.indexOf(user), 1);
+      fs.writeFileSync('users.json', JSON.stringify(users));
+      bot.sendMessage(msg.chat.id, 'Демо-режим закончился. Купите подписку, чтобы продолжить использование личного кабинета.');
+      return;
+    }
+    // Выводим в консоль идентификатор пользователя
+    console.log(`User ID: ${msg.from.id}`);
+    // Отправляем сообщение с доступными функциями
     bot.sendMessage(msg.chat.id, 'Выберите действие:', {
       reply_markup: {
         keyboard: [
           [{ text: 'Получить информацию' }],
-          [{ text: 'Оплатить подписку' }],
+          [{ text: 'Купить подписку' }],
         ],
         resize_keyboard: true,
         one_time_keyboard: true,
@@ -41,75 +76,36 @@ bot.onText(/\/start/, (msg) => {
   }
 });
 
-// Обработчик нажатия на кнопку "Начать"
-bot.on('message', (msg) => {
-  if (msg.text === 'Начать') {
-    const userId = msg.from.id;
-    const user = getUser(userId);
-
-    if (user && !user.expired) {
-      // Если пользователь уже зарегистрирован и его демо-период не истек, отправляем ему сообщение с кнопками
-      bot.sendMessage(msg.chat.id, 'Выберите действие:', {
-        reply_markup: {
-          keyboard: [
-            [{ text: 'Получить информацию' }],
-            [{ text: 'Оплатить подписку' }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      });
-    }
+// Обработчик команды "Получить информацию"
+bot.onText(/Получить информацию/, (msg) => {
+  // Проверяем, есть ли пользователь в файле users.json
+  const users = JSON.parse(fs.readFileSync('users.json'));
+  const user = users.find(u => u.id === msg.from.id);
+  if (!user) {
+    bot.sendMessage(msg.chat.id, 'Вы не зарегистрированы в личном кабинете. Нажмите /start, чтобы зарегистрироваться.');
+  } else if (user.demoMode) {
+    bot.sendMessage(msg.chat.id, 'Вы находитесь в демо-режиме. Купите подписку, чтобы получить доступ к информации.');
+  } else {
+    bot.sendMessage(msg.chat.id, 'Информация о вашей подписке:');
+    bot.sendMessage(msg.chat.id, `Подписка активна до ${user.subscriptionExpires}`);
   }
 });
 
-// Обработчик нажатия на кнопку "Получить информацию"
-bot.on('message', (msg) => {
-  if (msg.text === 'Получить информацию') {
-    const userId = msg.from.id;
-    const user = getUser(userId);
-
-    if (user && !user.expired) {
-      // Если пользователь уже зарегистрирован и его демо-период не истек, отправляем ему информацию
-      bot.sendMessage(msg.chat.id, `Информация для пользователя ${userId}`);
-    }
+// Обработчик команды "Купить подписку"
+bot.onText(/Купить подписку/, (msg) => {
+  // Проверяем, есть ли пользователь в файле users.json
+  const users = JSON.parse(fs.readFileSync('users.json'));
+  const user = users.find(u => u.id === msg.from.id);
+  if (!user) {
+    bot.sendMessage(msg.chat.id, 'Вы не зарегистрированы в личном кабинете. Нажмите /start, чтобы зарегистрироваться.');
+  } else if (user.subscription && new Date(user.subscriptionExpires) >= new Date()) {
+    bot.sendMessage(msg.chat.id, 'У вас уже есть активная подписка.');
+  } else {
+    // Устанавливаем подписку на месяц
+    user.demoMode = false;
+    user.subscription = true;
+    user.subscriptionExpires = new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000);
+    fs.writeFileSync('users.json', JSON.stringify(users));
+    bot.sendMessage(msg.chat.id, 'Подписка успешно куплена.');
   }
 });
-
-// Обработчик нажатия на кнопку "Оплатить подписку"
-bot.on('message', (msg) => {
-  if (msg.text === 'Оплатить подписку') {
-    const userId = msg.from.id;
-    const user = getUser(userId);
-
-    if (user && !user.expired) {
-      // Если пользователь уже зарегистрирован и его демо-период не истек, сообщаем ему о необходимости оплаты подписки
-      bot.sendMessage(msg.chat.id, 'Для продолжения работы необходимо оплатить подписку.');
-    }
-  }
-});
-
-// Функция для получения данных о пользователе по его идентификатору
-function getUser(userId) {
-  const users = getUsers();
-  return users.find((user) => user.id === userId);
-}
-
-// Функция для добавления нового пользователя
-function addUser(userId) {
-  const users = getUsers();
-  users.push({ id: userId, expired: false });
-  saveUsers(users);
-}
-
-// Функция для получения списка пользователей из файла users.json
-function getUsers() {
-  const data = fs.readFileSync('users.json');
-  return JSON.parse(data).users;
-}
-
-// Функция для сохранения списка пользователей в файл users.json
-function saveUsers(users) {
-  const data = JSON.stringify({ users });
-  fs.writeFileSync('users.json', data);
-}
