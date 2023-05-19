@@ -4,76 +4,42 @@ const fs = require('fs');
 const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
 const bot = new TelegramBot(token, { polling: true });
 
-const usersFile = 'users.json';
-
-// Функция для проверки, есть ли пользователь в файле
-function isUserExist(userId) {
-  const users = JSON.parse(fs.readFileSync(usersFile));
-  return users.hasOwnProperty(userId);
+// Загрузить данные о пользователях из файла
+let users = [];
+if (fs.existsSync('users.json')) {
+  const data = fs.readFileSync('users.json', 'utf8');
+  users = JSON.parse(data);
 }
 
-// Функция для получения информации о пользователе
-function getUserInfo(userId) {
-  const users = JSON.parse(fs.readFileSync(usersFile));
-  return users[userId];
-}
-
-// Функция для обновления информации о пользователе
-function updateUserInfo(userId, userInfo) {
-  const users = JSON.parse(fs.readFileSync(usersFile));
-  users[userId] = userInfo;
-  fs.writeFileSync(usersFile, JSON.stringify(users));
-}
-
-// Обработчик команды /start
+// Обработчик команды "start"
 bot.onText(/\/start/, (msg) => {
-  const userId = msg.chat.id;
-  const userInfo = {
-    demo: true,
-    demoExpires: Date.now() + 24 * 60 * 60 * 1000, // Демо доступ на 24 часа
-    subscribed: false,
-  };
-  updateUserInfo(userId, userInfo);
-  bot.sendMessage(userId, 'Добро пожаловать в личный кабинет!');
-});
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
 
-// Обработчик команды /status
-bot.onText(/\/status/, (msg) => {
-  const userId = msg.chat.id;
-  if (!isUserExist(userId)) {
-    bot.sendMessage(userId, 'Вы не зарегистрированы в системе');
-    return;
-  }
-  const userInfo = getUserInfo(userId);
-  if (userInfo.demo) {
-    bot.sendMessage(userId, `Демо доступ до ${new Date(userInfo.demoExpires).toLocaleString()}`);
-  } else if (userInfo.subscribed) {
-    bot.sendMessage(userId, 'Вы подписаны на месячную подписку');
+  // Проверяем, есть ли пользователь в списке
+  const user = users.find((u) => u.id === userId);
+  if (user) {
+    // Если пользователь уже есть в списке, выводим его данные
+    const message = `Привет, ${user.name}! Ваша подписка действительна до ${user.expireDate}.`;
+    bot.sendMessage(chatId, message);
   } else {
-    bot.sendMessage(userId, 'Ваш доступ истек');
+    // Если пользователь не найден, добавляем его в список и устанавливаем дату истечения подписки на 24 часа
+    const now = new Date();
+    const expireDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Дата истечения подписки через 24 часа
+    const newUser = { id: userId, name: msg.from.username, expireDate };
+    users.push(newUser);
+    fs.writeFileSync('users.json', JSON.stringify(users)); // Сохраняем данные в файл
+    bot.sendMessage(chatId, 'Добро пожаловать в наш бот! Ваша демо-подписка действительна 24 часа.');
   }
 });
 
-// Обработчик команды /subscribe
-bot.onText(/\/subscribe/, (msg) => {
-  const userId = msg.chat.id;
-  if (!isUserExist(userId)) {
-    bot.sendMessage(userId, 'Вы не зарегистрированы в системе');
-    return;
-  }
-  const userInfo = getUserInfo(userId);
-  if (userInfo.demo && Date.now() < userInfo.demoExpires) {
-    userInfo.demo = false;
-    userInfo.subscribed = true;
-    updateUserInfo(userId, userInfo);
-    bot.sendMessage(userId, 'Вы успешно подписались на месячную подписку');
-  } else {
-    bot.sendMessage(userId, 'Ваш доступ истек или вы уже подписаны');
-  }
-});
-
-// Обработчик неизвестной команды
-bot.on('message', (msg) => {
-  const userId = msg.chat.id;
-  bot.sendMessage(userId, 'Неизвестная команда');
-});
+// Запустить функцию проверки даты истечения подписки каждую минуту
+setInterval(() => {
+  const now = new Date();
+  users.forEach((user, index) => {
+    if (user.expireDate <= now) {
+      users.splice(index, 1); // Удаляем пользователя из списка при истечении срока действия подписки
+      fs.writeFileSync('users.json', JSON.stringify(users)); // Сохраняем данные в файл
+    }
+  });
+}, 60000);
