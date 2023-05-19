@@ -1,7 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
 
-// Токен бота, который вы получили у BotFather
+// Токен бота, который мы получили от BotFather
 const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
 
 // Создаем экземпляр бота
@@ -9,32 +8,20 @@ const bot = new TelegramBot(token, { polling: true });
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-
-  // Сохраняем ид пользователя в файл users.json
-  fs.readFile('users.json', (err, data) => {
-    let users = [];
-
-    if (!err) {
-      users = JSON.parse(data);
-    }
-
-    users.push(chatId);
-
-    fs.writeFile('users.json', JSON.stringify(users), (err) => {
-      if (err) {
-        console.error(err);
-        bot.sendMessage(chatId, 'Произошла ошибка при сохранении ид пользователя');
-      } else {
-        bot.sendMessage(chatId, 'Ваш ид успешно сохранен');
-      }
-    });
+  // Отправляем сообщение с кнопкой "Начать"
+  bot.sendMessage(msg.chat.id, 'Нажмите на кнопку "Начать"', {
+    reply_markup: {
+      keyboard: [[{ text: 'Начать' }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
   });
 });
 
-// Запускаем бота
-bot.on('polling_error', (error) => {
-  console.error(error);
+// Обработчик нажатия на кнопку "Начать"
+bot.on('message', (msg) => {
+  if (msg.text === 'Начать') {
+    // Выводим в консоль идентификатор пользователя
+    console.log(`User ID: ${msg.from.id}`);
+  }
 });
-
-console.log('Бот запущен');
