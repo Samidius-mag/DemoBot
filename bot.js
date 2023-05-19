@@ -1,82 +1,79 @@
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
-const bot = new TelegramBot('6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4', { polling: true });
+
+const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
+const bot = new TelegramBot(token, { polling: true });
+
 const usersFile = 'users.json';
 
-// Функция для чтения данных о пользователях из файла
-function readUsers() {
-  const data = fs.readFileSync(usersFile);
-  return JSON.parse(data);
+// Функция для проверки, есть ли пользователь в файле
+function isUserExist(userId) {
+  const users = JSON.parse(fs.readFileSync(usersFile));
+  return users.hasOwnProperty(userId);
 }
 
-// Функция для записи данных о пользователях в файл
-function writeUsers(users) {
-  const data = JSON.stringify(users);
-  fs.writeFileSync(usersFile, data);
+// Функция для получения информации о пользователе
+function getUserInfo(userId) {
+  const users = JSON.parse(fs.readFileSync(usersFile));
+  return users[userId];
+}
+
+// Функция для обновления информации о пользователе
+function updateUserInfo(userId, userInfo) {
+  const users = JSON.parse(fs.readFileSync(usersFile));
+  users[userId] = userInfo;
+  fs.writeFileSync(usersFile, JSON.stringify(users));
 }
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  const users = readUsers();
-  const user = users[chatId];
+  const userId = msg.chat.id;
+  const userInfo = {
+    demo: true,
+    demoExpires: Date.now() + 24 * 60 * 60 * 1000, // Демо доступ на 24 часа
+    subscribed: false,
+  };
+  updateUserInfo(userId, userInfo);
+  bot.sendMessage(userId, 'Добро пожаловать в личный кабинет!');
+});
 
-  if (!user) {
-    // Если пользователь не найден, создаем нового
-    users[chatId] = {
-      demo: true,
-      demoExpires: Date.now() + 24 * 60 * 60 * 1000, // демо версия на 24 часа
-      subscribed: false,
-    };
-    writeUsers(users);
-    bot.sendMessage(chatId, 'Добро пожаловать! Вы получили демо версию бота на 24 часа.');
-  } else if (user.subscribed) {
-    // Если пользователь подписан, показываем личный кабинет
-    bot.sendMessage(chatId, 'Вы уже подписаны на месячную подписку.');
-    showAccount(chatId, user);
-  } else if (user.demo) {
-    // Если пользователь находится в демо-режиме, показываем оставшееся время
-    const remainingTime = Math.ceil((user.demoExpires - Date.now()) / (60 * 60 * 1000));
-    bot.sendMessage(chatId, `У вас осталось ${remainingTime} часов демо-версии.`);
+// Обработчик команды /status
+bot.onText(/\/status/, (msg) => {
+  const userId = msg.chat.id;
+  if (!isUserExist(userId)) {
+    bot.sendMessage(userId, 'Вы не зарегистрированы в системе');
+    return;
+  }
+  const userInfo = getUserInfo(userId);
+  if (userInfo.demo) {
+    bot.sendMessage(userId, `Демо доступ до ${new Date(userInfo.demoExpires).toLocaleString()}`);
+  } else if (userInfo.subscribed) {
+    bot.sendMessage(userId, 'Вы подписаны на месячную подписку');
   } else {
-    // Если демо-версия истекла, предлагаем подписаться
-    bot.sendMessage(chatId, 'Демо-версия истекла. Хотите подписаться на месячную подписку?');
-    showSubscription(chatId);
+    bot.sendMessage(userId, 'Ваш доступ истек');
   }
 });
 
-// Функция для показа личного кабинета
-function showAccount(chatId, user) {
-  bot.sendMessage(chatId, `Личный кабинет\n\nПодписка: ${user.subscribed ? 'активна' : 'не активна'}`);
-}
-
-// Функция для показа опции подписки
-function showSubscription(chatId) {
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: 'Подписаться', callback_data: 'subscribe' },
-        { text: 'Отмена', callback_data: 'cancel' },
-      ],
-    ],
-  };
-  bot.sendMessage(chatId, 'Хотите подписаться на месячную подписку?', { reply_markup: keyboard });
-}
-
-// Обработчик нажатия на кнопку
-bot.on('callback_query', (query) => {
-  const chatId = query.message.chat.id;
-  const users = readUsers();
-  const user = users[chatId];
-
-  if (query.data === 'subscribe') {
-    // Если пользователь нажал на кнопку "Подписаться"
-    user.subscribed = true;
-    writeUsers(users);
-    bot.sendMessage(chatId, 'Вы успешно подписались на месячную подписку.');
-    showAccount(chatId, user);
-  } else if (query.data === 'cancel') {
-    // Если пользователь нажал на кнопку "Отмена"
-    bot.sendMessage(chatId, 'Вы отменили подписку.');
+// Обработчик команды /subscribe
+bot.onText(/\/subscribe/, (msg) => {
+  const userId = msg.chat.id;
+  if (!isUserExist(userId)) {
+    bot.sendMessage(userId, 'Вы не зарегистрированы в системе');
+    return;
   }
+  const userInfo = getUserInfo(userId);
+  if (userInfo.demo && Date.now() < userInfo.demoExpires) {
+    userInfo.demo = false;
+    userInfo.subscribed = true;
+    updateUserInfo(userId, userInfo);
+    bot.sendMessage(userId, 'Вы успешно подписались на месячную подписку');
+  } else {
+    bot.sendMessage(userId, 'Ваш доступ истек или вы уже подписаны');
+  }
+});
+
+// Обработчик неизвестной команды
+bot.on('message', (msg) => {
+  const userId = msg.chat.id;
+  bot.sendMessage(userId, 'Неизвестная команда');
 });
