@@ -1,72 +1,85 @@
 const TelegramBot = require('node-telegram-bot-api');
-const mysql = require('mysql');
+const fs = require('fs');
 
-// Подключение к базе данных
-const connection = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: 'Asetabalana14$',
-  database: 'users'
-});
+const token = 'YOUR_TELEGRAM_BOT_TOKEN';
+const bot = new TelegramBot(token, { polling: true });
 
-// Создание бота
-const bot = new TelegramBot('6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4', { polling: true });
+const usersFile = 'users.json';
+
+// Функция для чтения данных о пользователях из файла
+function readUsers() {
+  const data = fs.readFileSync(usersFile);
+  return JSON.parse(data);
+}
+
+// Функция для записи данных о пользователях в файл
+function writeUsers(users) {
+  const data = JSON.stringify(users);
+  fs.writeFileSync(usersFile, data);
+}
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+  const users = readUsers();
+  const user = users[chatId];
 
-  // Проверка наличия пользователя в базе данных
-  connection.query(`SELECT * FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
-    if (error) throw error;
-
-    if (results.length === 0) {
-      // Добавление нового пользователя в базу данных
-      connection.query(`INSERT INTO users (chat_id, demo_period) VALUES (${chatId}, NOW() + INTERVAL 1 DAY)`, (error, results, fields) => {
-        if (error) throw error;
-
-        bot.sendMessage(chatId, 'Добро пожаловать! Вы получили демо-версию бота на 24 часа.');
-      });
-    } else {
-      const demoPeriod = results[0].demo_period;
-
-      if (demoPeriod < new Date()) {
-        // Удаление пользователя из базы данных
-        connection.query(`DELETE FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
-          if (error) throw error;
-
-          bot.sendMessage(chatId, 'Демо-версия бота закончилась. Для продолжения использования необходимо оплатить месячную подписку.');
-        });
-      } else {
-        bot.sendMessage(chatId, 'Вы уже получили демо-версию бота на 24 часа.');
-      }
-    }
-  });
+  if (!user) {
+    // Если пользователь не найден, создаем нового
+    users[chatId] = {
+      demo: true,
+      demoExpires: Date.now() + 24 * 60 * 60 * 1000, // демо версия на 24 часа
+      subscribed: false,
+    };
+    writeUsers(users);
+    bot.sendMessage(chatId, 'Добро пожаловать! Вы получили демо версию бота на 24 часа.');
+  } else if (user.subscribed) {
+    // Если пользователь подписан, показываем личный кабинет
+    bot.sendMessage(chatId, 'Вы уже подписаны на месячную подписку.');
+    showAccount(chatId, user);
+  } else if (user.demo) {
+    // Если пользователь находится в демо-режиме, показываем оставшееся время
+    const remainingTime = Math.ceil((user.demoExpires - Date.now()) / (60 * 60 * 1000));
+    bot.sendMessage(chatId, `У вас осталось ${remainingTime} часов демо-версии.`);
+  } else {
+    // Если демо-версия истекла, предлагаем подписаться
+    bot.sendMessage(chatId, 'Демо-версия истекла. Хотите подписаться на месячную подписку?');
+    showSubscription(chatId);
+  }
 });
 
-// Обработчик команды /subscribe
-bot.onText(/\/subscribe/, (msg) => {
-  const chatId = msg.chat.id;
+// Функция для показа личного кабинета
+function showAccount(chatId, user) {
+  bot.sendMessage(chatId, `Личный кабинет\n\nПодписка: ${user.subscribed ? 'активна' : 'не активна'}`);
+}
 
-  // Проверка наличия пользователя в базе данных
-  connection.query(`SELECT * FROM users WHERE chat_id = ${chatId}`, (error, results, fields) => {
-    if (error) throw error;
+// Функция для показа опции подписки
+function showSubscription(chatId) {
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: 'Подписаться', callback_data: 'subscribe' },
+        { text: 'Отмена', callback_data: 'cancel' },
+      ],
+    ],
+  };
+  bot.sendMessage(chatId, 'Хотите подписаться на месячную подписку?', { reply_markup: keyboard });
+}
 
-    if (results.length === 0) {
-      bot.sendMessage(chatId, 'Вы не получили демо-версию бота.');
-    } else {
-      const demoPeriod = results[0].demo_period;
+// Обработчик нажатия на кнопку
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const users = readUsers();
+  const user = users[chatId];
 
-      if (demoPeriod < new Date()) {
-        bot.sendMessage(chatId, 'Демо-версия бота закончилась. Для продолжения использования необходимо оплатить месячную подписку.');
-      } else {
-        // Обновление даты окончания демо-периода и добавление месячной подписки
-        connection.query(`UPDATE users SET demo_period = NOW() + INTERVAL 1 MONTH, subscription = NOW() + INTERVAL 1 MONTH WHERE chat_id = ${chatId}`, (error, results, fields) => {
-          if (error) throw error;
-
-          bot.sendMessage(chatId, 'Вы успешно оплатили месячную подписку. Теперь вы можете продолжить использование бота.');
-        });
-      }
-    }
-  });
+  if (query.data === 'subscribe') {
+    // Если пользователь нажал на кнопку "Подписаться"
+    user.subscribed = true;
+    writeUsers(users);
+    bot.sendMessage(chatId, 'Вы успешно подписались на месячную подписку.');
+    showAccount(chatId, user);
+  } else if (query.data === 'cancel') {
+    // Если пользователь нажал на кнопку "Отмена"
+    bot.sendMessage(chatId, 'Вы отменили подписку.');
+  }
 });
