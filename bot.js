@@ -1,9 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
-
-const token = '6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4';
-const bot = new TelegramBot(token, { polling: true });
-
+const bot = new TelegramBot('6237100701:AAFDTCeZw8wWGc6MQw1oBvea6Nk-zKrV3t4', { polling: true });
 const usersFile = 'users.json';
 
 // Функция для чтения данных о пользователях из файла
